@@ -51,7 +51,7 @@ def cpu_count():
 ###############################################################################
 # For verbosity
 
-def _verbosity_filter(index, verbose):
+def _verbosity_filter(index, verbose, start_time, last_verbosity_time):
     """ Returns False for indices increasingly apart, the distance
         depending on the value of verbose.
 
@@ -63,6 +63,12 @@ def _verbosity_filter(index, verbose):
         return False
     if index == 0:
         return False
+    this_time = time.time()
+    if (this_time - last_verbosity_time <
+        .5 / verbose * (start_time - last_verbosity_time)):
+        # Don't display messages too frequently, where the gap between
+        # two messages increases with time.
+        return True
     verbose = .5 * (11 - verbose) ** 2
     scale = sqrt(index / verbose)
     next_scale = sqrt((index + 1) / verbose)
@@ -390,11 +396,15 @@ class Parallel(Logger):
         if self._pool is None:
             job = ImmediateApply(func, args, kwargs)
             index = len(self._jobs)
-            if not _verbosity_filter(index, self.verbose):
+            if not _verbosity_filter(index, self.verbose,
+                                     self._start_time,
+                                     self._last_verbosity_time):
+                this_time = time.time()
                 self._print('Done %3i jobs       | elapsed: %s',
                         (index + 1,
-                            short_format_time(time.time() - self._start_time)
+                            short_format_time(this_time - self._start_time)
                         ))
+                self._last_verbosity_time = this_time
             self._jobs.append(job)
             self.n_dispatched += 1
         else:
@@ -452,12 +462,15 @@ class Parallel(Logger):
         """
         if not self.verbose:
             return
-        elapsed_time = time.time() - self._start_time
+        this_time = time.time()
+        elapsed_time = this_time - self._start_time
 
         # This is heuristic code to print only 'verbose' times a messages
         # The challenge is that we may not know the queue length
         if self._original_iterable:
-            if _verbosity_filter(index, self.verbose):
+            if _verbosity_filter(index, self.verbose,
+                                 self._start_time,
+                                 self._last_verbosity_time):
                 return
             self._print('Done %3i jobs       | elapsed: %s',
                         (index + 1,
@@ -484,6 +497,7 @@ class Parallel(Logger):
                          short_format_time(elapsed_time),
                          short_format_time(remaining_time),
                         ))
+        self._last_verbosity_time = this_time
 
     def retrieve(self):
         self._output = list()
@@ -634,6 +648,9 @@ class Parallel(Logger):
             iterable = itertools.islice(iterable, pre_dispatch)
 
         self._start_time = time.time()
+        # To limit the verbosity and avoid having too many displays per
+        # second
+        self._last_verbosity_time = 0
         self.n_dispatched = 0
         try:
             if set_environ_flag:
