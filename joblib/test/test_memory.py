@@ -9,28 +9,20 @@ Test the memory module.
 import shutil
 import os
 import os.path
+import pickle
 import sys
 import time
 import datetime
-import pickle
-try:
-    # Python 2.7: use the C pickle to speed up
-    # test_concurrency_safe_write which pickles big python objects
-    import cPickle as cpickle
-except ImportError:
-    import pickle as cpickle
-import functools
 
-
-from joblib.memory import Memory, MemorizedFunc, NotMemorizedFunc
-from joblib.memory import MemorizedResult, NotMemorizedResult, _FUNCTION_HASHES
-from joblib.memory import _get_cache_items, _get_cache_items_to_delete
-from joblib.memory import _load_output, _get_func_fullname
+from joblib.memory import Memory
+from joblib.memory import MemorizedFunc, NotMemorizedFunc
+from joblib.memory import MemorizedResult, NotMemorizedResult
+from joblib.memory import _FUNCTION_HASHES
+from joblib.memory import register_store_backend, _STORE_BACKENDS
+from joblib.memory import _build_func_identifier, _store_backend_factory
 from joblib.memory import JobLibCollisionWarning
-from joblib.memory import concurrency_safe_write
-from joblib.parallel import Parallel, delayed
+from joblib._store_backends import StoreBackendBase, FileSystemStoreBackend
 from joblib.test.common import with_numpy, np
-from joblib.test.common import with_multiprocessing
 from joblib.testing import parametrize, raises, warns
 from joblib._compat import PY3_OR_LATER
 
@@ -62,7 +54,7 @@ def check_identity_lazy(func, accumulator, cachedir):
 
 ###############################################################################
 # Tests
-def test_memory_integration(tmpdir):
+def test_memory_integration():
     """ Simple test of memory lazy evaluation.
     """
     accumulator = list()
@@ -375,7 +367,9 @@ def test_func_dir(tmpdir):
 
     g = memory.cache(f)
     # Test that the function directory is created on demand
-    assert g._get_func_dir() == path
+    func_id = _build_func_identifier(f)
+    cached_dir = os.path.join(g.store.cachedir, func_id)
+    assert cachedir == path
     assert os.path.exists(path)
 
     # Test that the code is stored.
@@ -388,8 +382,10 @@ def test_func_dir(tmpdir):
 
     # Test the robustness to failure of loading previous results.
     dir, _ = g.get_output_dir(1)
+    func_id, args_id = g._get_output_idendifiers(1)
+    output_dir = os.path.join(g.store.cachedir, func_id, args_id)
     a = g(1)
-    assert os.path.exists(dir)
+    assert os.path.exists(output_dir)
     os.remove(os.path.join(dir, 'output.pkl'))
     assert a == g(1)
 
@@ -402,11 +398,12 @@ def test_persistence(tmpdir):
 
     h = pickle.loads(pickle.dumps(g))
 
-    output_dir, _ = h.get_output_dir(1)
-    func_name = _get_func_fullname(f)
-    assert output == _load_output(output_dir, func_name)
+    func_id, args_id = h._get_output_idendifiers(1)
+    output_dir = os.path.join(h.store.cachedir, func_id, args_id)
+    assert os.path.exists(output_dir)
+    assert output == h.store.load_result(func_id, args_id)
     memory2 = pickle.loads(pickle.dumps(memory))
-    assert memory.cachedir == memory2.cachedir
+    assert memory.store.cachedir == memory2.store.cachedir
 
     # Smoke test that pickling a memory with cachedir=None works
     memory = Memory(cachedir=None, verbose=0)
@@ -417,8 +414,7 @@ def test_persistence(tmpdir):
 
 
 def test_call_and_shelve(tmpdir):
-    """Test MemorizedFunc outputting a reference to cache.
-    """
+    # Test MemorizedFunc outputting a reference to cache.
 
     for func, Result in zip((MemorizedFunc(f, tmpdir.strpath),
                              NotMemorizedFunc(f),
@@ -627,17 +623,19 @@ def _setup_toy_cache(tmpdir, num_inputs=10):
     for arg in inputs:
         get_1000_bytes(arg)
 
-    hash_dirnames = [get_1000_bytes._get_output_dir(arg)[0] for arg in inputs]
+    func_id = _build_func_identifier(get_1000_bytes)
+    hash_dirnames = [get_1000_bytes._get_output_idendifiers(arg)[1]
+                     for arg in inputs]
 
-    full_hashdirs = [os.path.join(get_1000_bytes.cachedir, dirname)
+    full_hashdirs = [os.path.join(get_1000_bytes.store.cachedir,
+                                  func_id, dirname)
                      for dirname in hash_dirnames]
     return memory, full_hashdirs, get_1000_bytes
 
 
 def test__get_cache_items(tmpdir):
     memory, expected_hash_cachedirs, _ = _setup_toy_cache(tmpdir)
-    cachedir = memory.cachedir
-    cache_items = _get_cache_items(cachedir)
+    cache_items = memory.store.get_cache_items()
     hash_cachedirs = [ci.path for ci in cache_items]
     assert set(hash_cachedirs) == set(expected_hash_cachedirs)
 
@@ -663,32 +661,31 @@ def test__get_cache_items(tmpdir):
 
 def test__get_cache_items_to_delete(tmpdir):
     memory, expected_hash_cachedirs, _ = _setup_toy_cache(tmpdir)
-    cachedir = memory.cachedir
-    cache_items = _get_cache_items(cachedir)
+    cache_items = memory.store.get_cache_items()
     # bytes_limit set to keep only one cache item (each hash cache
     # folder is about 1000 bytes + metadata)
-    cache_items_to_delete = _get_cache_items_to_delete(cachedir, '2K')
+    cache_items_to_delete = memory.store._get_cache_items_to_delete('2K')
     nb_hashes = len(expected_hash_cachedirs)
     assert set.issubset(set(cache_items_to_delete), set(cache_items))
     assert len(cache_items_to_delete) == nb_hashes - 1
 
     # Sanity check bytes_limit=2048 is the same as bytes_limit='2K'
-    cache_items_to_delete_2048b = _get_cache_items_to_delete(cachedir, 2048)
-    assert sorted(cache_items_to_delete) == sorted(cache_items_to_delete_2048b)
+    cache_items_to_delete_2048b = mem.store._get_cache_items_to_delete(2048)
+assert sorted(cache_items_to_delete) == sorted(cache_items_to_delete_2048b)
 
     # bytes_limit greater than the size of the cache
-    cache_items_to_delete_empty = _get_cache_items_to_delete(cachedir, '1M')
+    cache_items_to_delete_empty = memory.store._get_cache_items_to_delete('1M')
     assert cache_items_to_delete_empty == []
 
     # All the cache items need to be deleted
     bytes_limit_too_small = 500
-    cache_items_to_delete_500b = _get_cache_items_to_delete(
-        cachedir, bytes_limit_too_small)
+    cache_items_to_delete_500b = memory.store._get_cache_items_to_delete(
+        bytes_limit_too_small)
     assert set(cache_items_to_delete_500b), set(cache_items)
 
     # Test LRU property: surviving cache items should all have a more
     # recent last_access that the ones that have been deleted
-    cache_items_to_delete_6000b = _get_cache_items_to_delete(cachedir, 6000)
+    cache_items_to_delete_6000b = memory.store._get_cache_items_to_delete(6000)
     surviving_cache_items = set(cache_items).difference(
         cache_items_to_delete_6000b)
 
@@ -696,27 +693,26 @@ def test__get_cache_items_to_delete(tmpdir):
             min(ci.last_access for ci in surviving_cache_items))
 
 
-def test_memory_reduce_size(tmpdir):
-    memory, _, _ = _setup_toy_cache(tmpdir)
-    cachedir = memory.cachedir
-    ref_cache_items = _get_cache_items(cachedir)
+def test_memory_reduce_size():
+    memory, _, _ = _setup_temporary_cache_folder()
+    ref_cache_items = memory.store.get_cache_items()
 
     # By default memory.bytes_limit is None and reduce_size is a noop
     memory.reduce_size()
-    cache_items = _get_cache_items(cachedir)
+    cache_items = memory.store.get_cache_items()
     assert sorted(ref_cache_items) == sorted(cache_items)
 
     # No cache items deleted if bytes_limit greater than the size of
     # the cache
     memory.bytes_limit = '1M'
     memory.reduce_size()
-    cache_items = _get_cache_items(cachedir)
+    cache_items = memory.store.get_cache_items()
     assert sorted(ref_cache_items) == sorted(cache_items)
 
     # bytes_limit is set so that only two cache items are kept
     memory.bytes_limit = '3K'
     memory.reduce_size()
-    cache_items = _get_cache_items(cachedir)
+    cache_items = memory.store.get_cache_items()
     assert set.issubset(set(cache_items), set(ref_cache_items))
     assert len(cache_items) == 2
 
@@ -724,7 +720,7 @@ def test_memory_reduce_size(tmpdir):
     bytes_limit_too_small = 500
     memory.bytes_limit = bytes_limit_too_small
     memory.reduce_size()
-    cache_items = _get_cache_items(cachedir)
+    cache_items = memory.store.get_cache_items()
     assert cache_items == []
 
 
@@ -862,3 +858,94 @@ def test_memory_recomputes_after_an_error_why_loading_results(tmpdir,
     assert exception_msg in recorded_warnings[0]
     assert recomputed_arg == arg
     assert recomputed_timestamp > timestamp
+
+
+def test_cachedir_deprecation_warning():
+    # verify the right deprecation warnings are raised when using cachedir
+    # option instead of new location parameter.
+    with warns(None) as w:
+        memory = Memory(location=env['dir'], cachedir=env['dir'], verbose=0)
+
+    assert len(w) == 1
+    assert "You set both location and cachedir options" in str(w[-1].message)
+    assert memory.store.cachedir.startswith(env['dir'])
+
+    with warns(None) as w:
+        memory = Memory(cachedir=env['dir'], verbose=0)
+
+    assert len(w) == 1
+    assert "cachedir option is deprecated since version" in str(w[-1].message)
+    assert memory.store.cachedir.startswith(env['dir'])
+
+
+class IncompleteStoreBackend(StoreBackendBase):
+    """This backend cannot be instanciated and should raise a TypeError."""
+    pass
+
+
+class DummyStoreBackend(StoreBackendBase):
+    """A dummy store backend that does nothing."""
+
+    def create_location(self, location):
+        """Create location on store."""
+        "Does nothing"
+
+    def exists(self, obj):
+        """Check if an object exists in the store"""
+        return False
+
+    def clear_location(self, obj):
+        """Clear object on store"""
+        "Does nothing"
+
+    def get_cache_items(self):
+        """Returns the whole list of items available in cache."""
+        return []
+
+    def configure(self, location, *args, **kwargs):
+        """Configure the store"""
+        "Does nothing"
+
+
+def test_register_invalid_store_backends():
+    # verify the right exceptions are raised when passing a wrong parameters
+    # to backend registration function.
+    for invalid_prefix in [None,
+                           dict(),
+                           list()]:
+        with raises(ValueError) as excinfo:
+            register_store_backend(invalid_prefix, None)
+        excinfo.match(r'Store backend name should be a string*')
+    
+    with raises(ValueError) as excinfo:
+        register_store_backend("fs", None)
+    excinfo.match(r'Store backend should inherit StoreBackendBase*')
+
+
+def test_memory_default_store_backend():
+    # test an unknow backend falls back into a FileSystemStoreBackend
+    memory = Memory(location='/tmp/joblib', backend='unknown', verbose=0)
+    assert isinstance(memory.store, FileSystemStoreBackend)
+
+
+def test_instanciate_incomplete_store_backend():
+    # Verify that registering an external incomplete store backend raises an
+    # exception when one tries to instanciate it.
+    backend_name = "isb"
+    register_store_backend(backend_name, IncompleteStoreBackend)
+    assert (backend_name, IncompleteStoreBackend) in _STORE_BACKENDS.items()
+    with raises(TypeError) as excinfo:
+        _store_backend_factory(backend_name, "fake_location")
+    excinfo.match(r"Can't instantiate abstract class "
+                   "IncompleteStoreBackend with abstract methods*")
+
+
+def test_dummy_store_backend():
+    # Verify that registering an external store backend works.
+
+    backend_name = "dsb"
+    register_store_backend(backend_name, DummyStoreBackend)
+    assert (backend_name, DummyStoreBackend) in _STORE_BACKENDS.items()
+
+    backend_obj = _store_backend_factory(backend_name, "dummy_location")
+    assert isinstance(backend_obj, DummyStoreBackend)
