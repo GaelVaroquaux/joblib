@@ -54,7 +54,7 @@ def check_identity_lazy(func, accumulator, cachedir):
 
 ###############################################################################
 # Tests
-def test_memory_integration():
+def test_memory_integration(tmpdir):
     """ Simple test of memory lazy evaluation.
     """
     accumulator = list()
@@ -368,7 +368,7 @@ def test_func_dir(tmpdir):
     g = memory.cache(f)
     # Test that the function directory is created on demand
     func_id = _build_func_identifier(f)
-    cached_dir = os.path.join(g.store.cachedir, func_id)
+    cachedir = os.path.join(g.store.cachedir, func_id)
     assert cachedir == path
     assert os.path.exists(path)
 
@@ -381,12 +381,11 @@ def test_func_dir(tmpdir):
     assert g._check_previous_func_code()
 
     # Test the robustness to failure of loading previous results.
-    dir, _ = g.get_output_dir(1)
     func_id, args_id = g._get_output_idendifiers(1)
     output_dir = os.path.join(g.store.cachedir, func_id, args_id)
     a = g(1)
     assert os.path.exists(output_dir)
-    os.remove(os.path.join(dir, 'output.pkl'))
+    os.remove(os.path.join(output_dir, 'output.pkl'))
     assert a == g(1)
 
 
@@ -670,8 +669,8 @@ def test__get_cache_items_to_delete(tmpdir):
     assert len(cache_items_to_delete) == nb_hashes - 1
 
     # Sanity check bytes_limit=2048 is the same as bytes_limit='2K'
-    cache_items_to_delete_2048b = mem.store._get_cache_items_to_delete(2048)
-assert sorted(cache_items_to_delete) == sorted(cache_items_to_delete_2048b)
+    cache_items_to_delete_2048b = memory.store._get_cache_items_to_delete(2048)
+    assert sorted(cache_items_to_delete) == sorted(cache_items_to_delete_2048b)
 
     # bytes_limit greater than the size of the cache
     cache_items_to_delete_empty = memory.store._get_cache_items_to_delete('1M')
@@ -693,8 +692,8 @@ assert sorted(cache_items_to_delete) == sorted(cache_items_to_delete_2048b)
             min(ci.last_access for ci in surviving_cache_items))
 
 
-def test_memory_reduce_size():
-    memory, _, _ = _setup_temporary_cache_folder()
+def test_memory_reduce_size(tmpdir):
+    memory, _, _ = _setup_toy_cache(tmpdir)
     ref_cache_items = memory.store.get_cache_items()
 
     # By default memory.bytes_limit is None and reduce_size is a noop
@@ -860,22 +859,22 @@ def test_memory_recomputes_after_an_error_why_loading_results(tmpdir,
     assert recomputed_timestamp > timestamp
 
 
-def test_cachedir_deprecation_warning():
+def test_cachedir_deprecation_warning(tmpdir):
     # verify the right deprecation warnings are raised when using cachedir
     # option instead of new location parameter.
     with warns(None) as w:
-        memory = Memory(location=env['dir'], cachedir=env['dir'], verbose=0)
+        memory = Memory(location=tmpdir.strpath, cachedir=tmpdir, verbose=0)
+        assert memory.store.cachedir.startswith(tmpdir.strpath)
 
     assert len(w) == 1
     assert "You set both location and cachedir options" in str(w[-1].message)
-    assert memory.store.cachedir.startswith(env['dir'])
 
     with warns(None) as w:
-        memory = Memory(cachedir=env['dir'], verbose=0)
+        memory = Memory(cachedir=tmpdir.strpath, verbose=0)
+        assert memory.store.cachedir.startswith(tmpdir.strpath)
 
     assert len(w) == 1
     assert "cachedir option is deprecated since version" in str(w[-1].message)
-    assert memory.store.cachedir.startswith(env['dir'])
 
 
 class IncompleteStoreBackend(StoreBackendBase):
@@ -907,16 +906,17 @@ class DummyStoreBackend(StoreBackendBase):
         "Does nothing"
 
 
-def test_register_invalid_store_backends():
-    # verify the right exceptions are raised when passing a wrong parameters
-    # to backend registration function.
-    for invalid_prefix in [None,
-                           dict(),
-                           list()]:
-        with raises(ValueError) as excinfo:
-            register_store_backend(invalid_prefix, None)
-        excinfo.match(r'Store backend name should be a string*')
-    
+@parametrize("invalid_prefix", [None, dict(), list()])
+def test_register_invalid_store_backends_key(invalid_prefix):
+    # verify the right exceptions are raised when passing a wrong backend key.
+    with raises(ValueError) as excinfo:
+        register_store_backend(invalid_prefix, None)
+    excinfo.match(r'Store backend name should be a string*')
+
+
+def test_register_invalid_store_backends_object():
+    # verify the right exceptions are raised when passing a wrong backend
+    # object.
     with raises(ValueError) as excinfo:
         register_store_backend("fs", None)
     excinfo.match(r'Store backend should inherit StoreBackendBase*')
@@ -937,7 +937,7 @@ def test_instanciate_incomplete_store_backend():
     with raises(TypeError) as excinfo:
         _store_backend_factory(backend_name, "fake_location")
     excinfo.match(r"Can't instantiate abstract class "
-                   "IncompleteStoreBackend with abstract methods*")
+                  "IncompleteStoreBackend with abstract methods*")
 
 
 def test_dummy_store_backend():

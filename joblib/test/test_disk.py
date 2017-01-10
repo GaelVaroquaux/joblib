@@ -60,8 +60,9 @@ def test_mkdirp(tmpdir):
     with raises(OSError):
         mkdirp('')
 
-def test_rm_subdirs():
-    sub_path = os.path.join(tmp, "am", "stram")
+
+def test_rm_subdirs(tmpdir):
+    sub_path = os.path.join(tmpdir.strpath, "am", "stram")
     full_path = os.path.join(sub_path, "gram")
     mkdirp(os.path.join(full_path))
 
