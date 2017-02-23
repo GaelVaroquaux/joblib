@@ -301,11 +301,7 @@ class FileSystemStoreBackend(StoreBackendBase, StoreManagerMixin):
         # attach required methods using monkey patching trick.
         self.open_object = open
         self.object_exists = os.path.exists
-
-        if isinstance(location, _basestring):
-            self.cachedir = os.path.join(location, 'joblib')
-        elif isinstance(location, FileSystemStoreBackend):
-            self.cachedir = location.cachedir
+        self.cachedir = os.path.join(location, 'joblib')
 
         if not os.path.exists(self.cachedir):
             mkdirp(self.cachedir)
