@@ -43,15 +43,15 @@ class StoreBackendBase(with_metaclass(ABCMeta)):
         """Create location on store."""
 
     @abstractmethod
-    def clear_location(self, obj):
-        """Clear object on store"""
+    def clear_location(self, location):
+        """Clear location on store."""
 
     @abstractmethod
     def get_cache_items(self):
         """Returns the whole list of items available in cache."""
 
     @abstractmethod
-    def configure(self, location, *args, **kwargs):
+    def configure(self, location, **kwargs):
         """Configure the store"""
 
 
