@@ -216,7 +216,7 @@ class StoreManagerMixin(object):
 
     def clear(self):
         """Clear the whole store content."""
-        rm_subdirs(self.cachedir)
+        self.clear_location(self.cachedir)
 
     def reduce_cache_size(self, bytes_limit):
         """Reduce cache size to keep it under the given bytes limit."""
@@ -279,7 +279,10 @@ class FileSystemStoreBackend(StoreBackendBase, StoreManagerMixin):
 
     def clear_location(self, location):
         """Delete location on store."""
-        shutil.rmtree(location, ignore_errors=True)
+        if (location == self.cachedir):
+            rm_subdirs(location)
+        else:
+            shutil.rmtree(location, ignore_errors=True)
 
     def create_location(self, location):
         """Create object location on store"""
