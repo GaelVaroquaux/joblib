@@ -19,7 +19,6 @@ import traceback
 import warnings
 import inspect
 import weakref
-import threading
 
 # Local imports
 from . import hashing
@@ -28,10 +27,7 @@ from .func_inspect import format_call
 from .func_inspect import format_signature
 from ._memory_helpers import open_py_source
 from .logger import Logger, format_time, pformat
-from . import numpy_pickle
-from .disk import mkdirp, rm_subdirs, memstr_to_bytes
 from ._compat import _basestring, PY3_OR_LATER
-from .backports import concurrency_safe_rename
 from ._store_backends import StoreBackendBase, FileSystemStoreBackend
 
 
@@ -144,15 +140,6 @@ def _build_func_identifier(func):
 
     # We reuse historical fs-like way of building a function identifier
     return os.path.join(*parts)
-
-
-def concurrency_safe_write(to_write, filename, write_func):
-    """Writes an object into a file in a concurrency-safe way."""
-    thread_id = id(threading.current_thread())
-    temporary_filename = '{}.thread-{}-pid-{}'.format(
-        filename, thread_id, os.getpid())
-    write_func(to_write, temporary_filename)
-    concurrency_safe_rename(temporary_filename, filename)
 
 
 # An in-memory store to avoid looking at the disk-based function
@@ -416,7 +403,7 @@ class MemorizedFunc(Logger):
         metadata = None
         # FIXME: The statements below should be try/excepted
         if not (self._check_previous_func_code(stacklevel=4) and
-                self.store.contains_cached_func(func_id)):
+                self.store.contains_result(func_id, args_id)):
             if self._verbose > 10:
                 _, name = get_func_name(self.func)
                 self.warn('Computing func %{0}, argument hash %{1} '
@@ -449,11 +436,10 @@ class MemorizedFunc(Logger):
                 # XXX: Should use an exception logger
                 _, signature = format_signature(self.func, *args, **kwargs)
                 self.warn('Exception while loading results for '
-                          '(args=%s, kwargs=%s)\n %s' %
-                          (args, kwargs, traceback.format_exc()))
+                          '{}\n {}'.format(signature, traceback.format_exc()))
 
-                self.store.clear_result(func_id, args_id)
                 out, metadata = self.call(*args, **kwargs)
+                args_id = None
 
         return (out, args_id, metadata)
 

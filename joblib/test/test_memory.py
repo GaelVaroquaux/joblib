@@ -13,6 +13,14 @@ import pickle
 import sys
 import time
 import datetime
+try:
+    # Python 2.7: use the C pickle to speed up
+    # test_concurrency_safe_write which pickles big python objects
+    import cPickle as cpickle
+except ImportError:
+    import pickle as cpickle
+import functools
+
 
 from joblib.memory import Memory
 from joblib.memory import MemorizedFunc, NotMemorizedFunc
@@ -21,8 +29,10 @@ from joblib.memory import _FUNCTION_HASHES
 from joblib.memory import register_store_backend, _STORE_BACKENDS
 from joblib.memory import _build_func_identifier, _store_backend_factory
 from joblib.memory import JobLibCollisionWarning
+from joblib.parallel import Parallel, delayed
 from joblib._store_backends import StoreBackendBase, FileSystemStoreBackend
 from joblib.test.common import with_numpy, np
+from joblib.test.common import with_multiprocessing
 from joblib.testing import parametrize, raises, warns
 from joblib._compat import PY3_OR_LATER
 
@@ -727,7 +737,7 @@ def test_memory_clear(tmpdir):
     memory, _, _ = _setup_toy_cache(tmpdir)
     memory.clear()
 
-    assert os.listdir(memory.cachedir) == []
+    assert os.listdir(memory.store.cachedir) == []
 
 
 def fast_func_with_complex_output():
@@ -808,9 +818,29 @@ def load_func(expected, filename):
 @with_multiprocessing
 @parametrize('backend', ['multiprocessing', 'threading'])
 def test_concurrency_safe_write(tmpdir, backend):
-    filename = tmpdir.join('test.pkl').strpath
+    # Add one item to cache
+    memory = Memory(location=tmpdir.strpath)
+
+    def func(arg):
+        # This makes sure that the timestamp returned by two calls of
+        # func are different. This is needed on Windows where
+        # time.time resolution may not be accurate enough
+        time.sleep(0.01)
+        return arg, time.time()
+
+    input_arg = 'arg'
+    cached_func = memory.cache(func)
+    cached_func(input_arg)
+    func_id, args_id = cached_func._get_output_idendifiers(input_arg)
+    output_dir = os.path.join(cached_func.store.cachedir, func_id, args_id)
+    assert os.path.exists(output_dir)
+
+    filename = os.path.join(output_dir, 'output.pkl')
+    assert os.path.isfile(filename)
+
     obj = {str(i): i for i in range(int(1e5))}
-    funcs = [functools.partial(concurrency_safe_write, write_func=write_func)
+    funcs = [functools.partial(memory.store._concurrency_safe_write,
+                               write_func=write_func)
              if i % 3 != 2 else load_func for i in range(12)]
     Parallel(n_jobs=2, backend=backend)(
         delayed(func)(obj, filename) for func in funcs)
@@ -818,7 +848,7 @@ def test_concurrency_safe_write(tmpdir, backend):
 
 def test_memory_recomputes_after_an_error_why_loading_results(tmpdir,
                                                               monkeypatch):
-    memory = Memory(tmpdir.strpath)
+    memory = Memory(location=tmpdir.strpath)
 
     def func(arg):
         # This makes sure that the timestamp returned by two calls of
@@ -836,7 +866,7 @@ def test_memory_recomputes_after_an_error_why_loading_results(tmpdir,
 
     # Corrupting output.pkl to make sure that an error happens when
     # loading the cached result
-    single_cache_item, = _get_cache_items(memory.cachedir)
+    single_cache_item, = memory.store.get_cache_items()
     output_filename = os.path.join(single_cache_item.path, 'output.pkl')
     with open(output_filename, 'w') as f:
         f.write('garbage')

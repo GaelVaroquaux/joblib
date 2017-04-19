@@ -10,10 +10,12 @@ import shutil
 import warnings
 import collections
 import operator
+import threading
 from abc import ABCMeta, abstractmethod
 from ._compat import with_metaclass, _basestring
+from .backports import concurrency_safe_rename
 from .logger import format_time
-from .disk import mkdirp, memstr_to_bytes
+from .disk import mkdirp, memstr_to_bytes, rm_subdirs
 from . import numpy_pickle
 
 CacheItemInfo = collections.namedtuple('CacheItemInfo',
@@ -60,10 +62,6 @@ class StoreManagerMixin(object):
     def load_result(self, func_id, args_id, **kwargs):
         """Load computation output from store."""
         full_path = os.path.join(self.cachedir, func_id, args_id)
-        filename = os.path.join(full_path, 'output.pkl')
-        if not self.object_exists(filename):
-            raise KeyError("Non-existing cache value (may have been "
-                           "cleared).\nFile %s does not exist" % filename)
 
         if 'verbose' in kwargs and kwargs['verbose'] > 1:
             verbose = kwargs['verbose']
@@ -98,6 +96,11 @@ class StoreManagerMixin(object):
 
         mmap_mode = None if 'mmap_mode' not in kwargs else kwargs['mmap_mode']
 
+        filename = os.path.join(full_path, 'output.pkl')
+        if not self.object_exists(filename):
+            raise KeyError("Non-existing cache value (may have been "
+                           "cleared).\nFile %s does not exist" % filename)
+
         # file-like object cannot be used when mmap_mode is set
         if mmap_mode is None:
             with self.open_object(filename, "rb") as f:
@@ -116,8 +119,11 @@ class StoreManagerMixin(object):
             if 'verbose' in kwargs and kwargs['verbose'] > 10:
                 print('Persisting in %s' % result_dir)
 
-            with self.open_object(filename, "wb") as f:
-                numpy_pickle.dump(result, f, compress=compress)
+            def write_func(to_write, dest_filename):
+                with self.open_object(dest_filename, "wb") as f:
+                    numpy_pickle.dump(to_write, f, compress=compress)
+
+            self._concurrency_safe_write(result, filename, write_func)
         except:
             " Race condition in the creation of the directory "
 
@@ -153,9 +159,13 @@ class StoreManagerMixin(object):
         try:
             directory = os.path.join(self.cachedir, func_id, args_id)
             self.create_location(directory)
-            with self.open_object(os.path.join(directory, 'metadata.json'),
-                                  'wb') as f:
-                f.write(json.dumps(metadata).encode('utf-8'))
+            filename = os.path.join(directory, 'metadata.json')
+
+            def write_func(to_write, dest_filename):
+                with self.open_object(dest_filename, "wb") as f:
+                    f.write(json.dumps(to_write).encode('utf-8'))
+
+            self._concurrency_safe_write(metadata, filename, write_func)
         except:
             pass
 
@@ -196,7 +206,7 @@ class StoreManagerMixin(object):
 
     def clear(self):
         """Clear the whole store content."""
-        self.clear_location(self.cachedir)
+        rm_subdirs(self.cachedir)
 
     def reduce_cache_size(self, bytes_limit):
         """Reduce cache size to keep it under the given bytes limit."""
@@ -242,6 +252,14 @@ class StoreManagerMixin(object):
             size_so_far += item.size
 
         return cache_items_to_delete
+
+    def _concurrency_safe_write(self, to_write, filename, write_func):
+        """Writes an object into a file in a concurrency-safe way."""
+        thread_id = id(threading.current_thread())
+        temporary_filename = '{}.thread-{}-pid-{}'.format(
+            filename, thread_id, os.getpid())
+        write_func(to_write, temporary_filename)
+        self.mv(temporary_filename, filename)
 
     def __repr__(self):
         """Printable representation of the store location."""
@@ -301,8 +319,10 @@ class FileSystemStoreBackend(StoreBackendBase, StoreManagerMixin):
         # attach required methods using monkey patching trick.
         self.open_object = open
         self.object_exists = os.path.exists
-        self.cachedir = os.path.join(location, 'joblib')
+        self.mv = concurrency_safe_rename
 
+        # setup cachedir
+        self.cachedir = os.path.join(location, 'joblib')
         if not os.path.exists(self.cachedir):
             mkdirp(self.cachedir)
 
