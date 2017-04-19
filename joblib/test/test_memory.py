@@ -35,6 +35,8 @@ from joblib.test.common import with_numpy, np
 from joblib.test.common import with_multiprocessing
 from joblib.testing import parametrize, raises, warns
 from joblib._compat import PY3_OR_LATER
+from joblib.backports import concurrency_safe_rename
+from joblib._store_backends import concurrency_safe_write
 
 
 ###############################################################################
@@ -799,6 +801,12 @@ def write_func(output, filename):
         cpickle.dump(output, f)
 
 
+def concurrency_safe_write_rename(to_write, filename, write_func):
+    temporary_filename = concurrency_safe_write(to_write,
+                                                filename, write_func)
+    concurrency_safe_rename(temporary_filename, filename)
+
+
 def load_func(expected, filename):
     for i in range(10):
         try:
@@ -819,27 +827,10 @@ def load_func(expected, filename):
 @parametrize('backend', ['multiprocessing', 'threading'])
 def test_concurrency_safe_write(tmpdir, backend):
     # Add one item to cache
-    memory = Memory(location=tmpdir.strpath)
-
-    def func(arg):
-        # This makes sure that the timestamp returned by two calls of
-        # func are different. This is needed on Windows where
-        # time.time resolution may not be accurate enough
-        time.sleep(0.01)
-        return arg, time.time()
-
-    input_arg = 'arg'
-    cached_func = memory.cache(func)
-    cached_func(input_arg)
-    func_id, args_id = cached_func._get_output_idendifiers(input_arg)
-    output_dir = os.path.join(cached_func.store.cachedir, func_id, args_id)
-    assert os.path.exists(output_dir)
-
-    filename = os.path.join(output_dir, 'output.pkl')
-    assert os.path.isfile(filename)
+    filename = tmpdir.join('test.pkl').strpath
 
     obj = {str(i): i for i in range(int(1e5))}
-    funcs = [functools.partial(memory.store._concurrency_safe_write,
+    funcs = [functools.partial(concurrency_safe_write_rename,
                                write_func=write_func)
              if i % 3 != 2 else load_func for i in range(12)]
     Parallel(n_jobs=2, backend=backend)(

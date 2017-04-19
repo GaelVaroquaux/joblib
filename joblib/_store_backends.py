@@ -22,6 +22,16 @@ CacheItemInfo = collections.namedtuple('CacheItemInfo',
                                        'path size last_access')
 
 
+def concurrency_safe_write(to_write, filename, write_func):
+    """Writes an object into a unique file in a concurrency-safe way."""
+    thread_id = id(threading.current_thread())
+    temporary_filename = '{}.thread-{}-pid-{}'.format(
+        filename, thread_id, os.getpid())
+    write_func(to_write, temporary_filename)
+
+    return temporary_filename
+
+
 class StoreBackendBase(with_metaclass(ABCMeta)):
     """Helper abc which defines all methods a StorageBackend must implement."""
 
@@ -255,10 +265,8 @@ class StoreManagerMixin(object):
 
     def _concurrency_safe_write(self, to_write, filename, write_func):
         """Writes an object into a file in a concurrency-safe way."""
-        thread_id = id(threading.current_thread())
-        temporary_filename = '{}.thread-{}-pid-{}'.format(
-            filename, thread_id, os.getpid())
-        write_func(to_write, temporary_filename)
+        temporary_filename = concurrency_safe_write(to_write,
+                                                    filename, write_func)
         self.mv(temporary_filename, filename)
 
     def __repr__(self):
