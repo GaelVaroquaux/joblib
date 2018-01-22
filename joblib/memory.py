@@ -96,7 +96,7 @@ def register_store_backend(backend_name, backend):
     _STORE_BACKENDS[backend_name] = backend
 
 
-def _store_backend_factory(backend, location, **kwargs):
+def _store_backend_factory(backend, location, verbose=0, store_options={}):
     """Return the correct store object for the given location."""
     if isinstance(location, StoreBackendBase):
         return location
@@ -118,7 +118,7 @@ def _store_backend_factory(backend, location, **kwargs):
 
         # The store backend is configured with the extra named parameters,
         # some of them are specific to the underlying store backend.
-        obj.configure(location, **kwargs)
+        obj.configure(location, verbose=verbose, store_options=store_options)
         return obj
 
     return None
@@ -187,7 +187,8 @@ class MemorizedResult(Logger):
         self.func = func
         self.func_id = _build_func_identifier(func)
         self.args_id = args_id
-        self.store = _store_backend_factory(backend, location)
+        self.store = _store_backend_factory(backend, location,
+                                            verbose=verbose)
         self.mmap_mode = mmap_mode
 
         if metadata is not None:
@@ -358,8 +359,11 @@ class MemorizedFunc(Logger):
 
         # retrieve store object from backend type and location.
         self.store = _store_backend_factory(backend, location,
-                                            compress=compress,
-                                            mmap_mode=mmap_mode)
+                                            verbose=verbose,
+                                            store_options=dict(
+                                                compress=compress,
+                                                mmap_mode=mmap_mode),
+                                            )
         if self.store is not None:
             # Create func directory on demand.
             self.store.\
@@ -722,7 +726,7 @@ class Memory(Logger):
 
     def __init__(self, location=None, backend='local', cachedir=None,
                  mmap_mode=None, compress=False, verbose=1, bytes_limit=None,
-                 **kwargs):
+                 store_options={}):
         """
             Parameters
             ----------
@@ -767,7 +771,6 @@ class Memory(Logger):
         self._verbose = verbose
         self.mmap_mode = mmap_mode
         self.timestamp = time.time()
-        self.compress = compress
         self.bytes_limit = bytes_limit
         if compress and mmap_mode is not None:
             warnings.warn('Compressed results cannot be memmapped',
@@ -787,8 +790,11 @@ class Memory(Logger):
                               DeprecationWarning, stacklevel=2)
 
         self.store = _store_backend_factory(backend, location,
-                                            compress=compress,
-                                            verbose=self._verbose, **kwargs)
+                                            verbose=self._verbose,
+                                            store_options=dict(
+                                                compress=compress,
+                                                store_options=store_options),
+                                            )
 
     def cache(self, func=None, ignore=None, verbose=None, mmap_mode=False):
         """ Decorates the given function func to only compute its return

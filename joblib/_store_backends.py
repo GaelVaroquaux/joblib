@@ -53,7 +53,7 @@ class StoreBackendBase(with_metaclass(ABCMeta)):
         """Returns the whole list of items available in cache."""
 
     @abstractmethod
-    def configure(self, location, **kwargs):
+    def configure(self, location, verbose=0, store_options=dict()):
         """Configure the store"""
 
 
@@ -120,8 +120,8 @@ class StoreManagerMixin(object):
             result = numpy_pickle.load(filename, mmap_mode=mmap_mode)
         return result
 
-    def dump_result(self, func_id, args_id, result, compress=False,
-                    verbose=1, **kwargs):
+    def dump_result(self, func_id, args_id, result,
+                    verbose=1):
         """Dump computation output in store."""
         try:
             result_dir = os.path.join(self.cachedir, func_id, args_id)
@@ -133,7 +133,8 @@ class StoreManagerMixin(object):
 
             def write_func(to_write, dest_filename):
                 with self.open_object(dest_filename, "wb") as f:
-                    numpy_pickle.dump(to_write, f, compress=compress)
+                    numpy_pickle.dump(to_write, f,
+                                      compress=self.compress)
 
             self._concurrency_safe_write(result, filename, write_func)
         except:  # noqa: E722
@@ -326,8 +327,11 @@ class FileSystemStoreBackend(StoreBackendBase, StoreManagerMixin):
 
         return cache_items
 
-    def configure(self, location, verbose=1, **kwargs):
-        """Configure the store backend."""
+    def configure(self, location, verbose=1, store_options={}):
+        """Configure the store backend.
+
+        For this backend, valid store options are 'compress' and 'mmap_mode'
+        """
 
         # attach required methods using monkey patching trick.
         self.open_object = open
@@ -340,14 +344,14 @@ class FileSystemStoreBackend(StoreBackendBase, StoreManagerMixin):
             mkdirp(self.cachedir)
 
         # computation results can be stored compressed for faster I/O
-        self.compress = (False if 'compress' not in kwargs
-                         else kwargs['compress'])
+        self.compress = (False if 'compress' not in store_options
+                         else store_options['compress'])
 
         # FileSystemStoreBackend can be used with mmap_mode options under
         # certain conditions.
         mmap_mode = None
-        if 'mmap_mode' in kwargs:
-            mmap_mode = kwargs['mmap_mode']
+        if 'mmap_mode' in store_options:
+            mmap_mode = store_options['mmap_mode']
             if self.compress and mmap_mode is not None:
                 warnings.warn('Compressed results cannot be memmapped in a '
                               'filesystem store. Option will be ignored.',
