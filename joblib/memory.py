@@ -63,6 +63,7 @@ class JobLibCollisionWarning(UserWarning):
     """ Warn that there might be a collision between names of functions.
     """
 
+
 _STORE_BACKENDS = {}
 
 
