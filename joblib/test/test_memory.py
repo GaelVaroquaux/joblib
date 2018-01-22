@@ -617,7 +617,7 @@ def func_with_signature(a: int, b: float) -> float:
         assert func_cached(1, 2, kw1=3, kw2='ignored') == (1, 2, 3, 4)
 
     def test_memory_func_with_signature(tmpdir):
-        memory = Memory(lcation=tmpdir.strpath, verbose=0)
+        memory = Memory(location=tmpdir.strpath, verbose=0)
         func_cached = memory.cache(func_with_signature)
 
         assert func_cached(1, 2.) == 3.
