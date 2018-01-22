@@ -136,7 +136,7 @@ class StoreManagerMixin(object):
                     numpy_pickle.dump(to_write, f, compress=compress)
 
             self._concurrency_safe_write(result, filename, write_func)
-        except:
+        except:  # noqa: E722
             " Race condition in the creation of the directory "
 
     def clear_result(self, func_id, args_id):
@@ -163,7 +163,7 @@ class StoreManagerMixin(object):
             filename = os.path.join(directory, 'metadata.json')
             with self.open_object(filename, 'rb') as f:
                 return json.loads(f.read().decode('utf-8'))
-        except:
+        except:  # noqa: E722
             return {}
 
     def store_metadata(self, func_id, args_id, metadata):
@@ -178,7 +178,7 @@ class StoreManagerMixin(object):
                     f.write(json.dumps(to_write).encode('utf-8'))
 
             self._concurrency_safe_write(metadata, filename, write_func)
-        except:
+        except:  # noqa: E722
             pass
 
     def contains_cached_func(self, func_id):
@@ -209,7 +209,7 @@ class StoreManagerMixin(object):
         try:
             with self.open_object(filename, 'rb') as f:
                 return f.read().decode('utf-8')
-        except:
+        except:  # noqa: E722
             raise
 
     def get_cached_func_info(self, func_id):
