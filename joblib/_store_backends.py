@@ -146,7 +146,7 @@ class StoreManagerMixin(object):
         if self.object_exists(result_dir):
             self.clear_location(result_dir)
 
-    def contains_result(self, func_id, args_id, **kwargs):
+    def contains_result(self, func_id, args_id):
         """Check computation output is available in store."""
         result_dir = os.path.join(self.cachedir, func_id, args_id)
         filename = os.path.join(result_dir, 'output.pkl')
@@ -359,4 +359,3 @@ class FileSystemStoreBackend(StoreBackendBase, StoreManagerMixin):
 
         self.mmap_mode = mmap_mode
         self.verbose = verbose
-
