@@ -101,9 +101,9 @@ class StoreManagerMixin(object):
                                                                str(signature)))
                 else:
                     print('[Memory]{0}: '
-                        'Loading {1} from {2}'.format(ts_string,
-                                                      str(signature),
-                                                      full_path))
+                          'Loading {1} from {2}'.format(ts_string,
+                                                        str(signature),
+                                                        full_path))
 
         mmap_mode = None if 'mmap_mode' not in kwargs else kwargs['mmap_mode']
 
