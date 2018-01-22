@@ -12,6 +12,7 @@ import collections
 import operator
 import threading
 from abc import ABCMeta, abstractmethod
+
 from ._compat import with_metaclass, _basestring
 from .backports import concurrency_safe_rename
 from .logger import format_time
@@ -22,18 +23,19 @@ CacheItemInfo = collections.namedtuple('CacheItemInfo',
                                        'path size last_access')
 
 
-def concurrency_safe_write(to_write, filename, write_func):
+def concurrency_safe_write(object_to_write, filename, write_func):
     """Writes an object into a unique file in a concurrency-safe way."""
     thread_id = id(threading.current_thread())
     temporary_filename = '{}.thread-{}-pid-{}'.format(
         filename, thread_id, os.getpid())
-    write_func(to_write, temporary_filename)
+    write_func(object_to_write, temporary_filename)
 
     return temporary_filename
 
 
 class StoreBackendBase(with_metaclass(ABCMeta)):
-    """Helper abc which defines all methods a StorageBackend must implement."""
+    """Helper Abstract Base Class which defines all methods that
+       a StorageBackend must implement."""
 
     open_object = None
     object_exists = None
