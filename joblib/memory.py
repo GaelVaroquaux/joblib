@@ -879,7 +879,7 @@ class Memory(Logger):
     def reduce_size(self):
         """Remove cache elements to make cache size fit in ``bytes_limit``."""
         if self.bytes_limit is not None and self.store is not None:
-            self.store.reduce_cache_size(self.bytes_limit)
+            self.store.reduce_store_size(self.bytes_limit)
 
     def eval(self, func, *args, **kwargs):
         """ Eval function func with arguments `*args` and `**kwargs`,

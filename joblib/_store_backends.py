@@ -47,8 +47,8 @@ class StoreBackendBase(with_metaclass(ABCMeta)):
         """Clear location on store."""
 
     @abstractmethod
-    def get_cache_items(self):
-        """Returns the whole list of items available in cache."""
+    def get_items(self):
+        """Returns the whole list of items available in store."""
 
     @abstractmethod
     def configure(self, location, verbose=0, store_options=dict()):
@@ -56,7 +56,7 @@ class StoreBackendBase(with_metaclass(ABCMeta)):
 
 
 class StoreManagerMixin(object):
-    """Class providing all logic for managing the cache in a generic way.
+    """Class providing all logic for managing the store in a generic way.
 
     The StoreBackend subclass has to implement 3 methods: create_location,
     clear_location and configure. The StoreBackend also has to provide
@@ -64,14 +64,14 @@ class StoreManagerMixin(object):
     in the configure method. The open_object method has to return a file-like
     object.
 
-    All values are cached on a filesystem-like backend, in a deep directory
+    All values are stored on a filesystem-like backend, in a deep directory
     structure.
 
     """
 
     def load_result(self, func_id, args_id, verbose=1, msg=None):
         """Load computation output from store."""
-        full_path = os.path.join(self.cachedir, func_id, args_id)
+        full_path = os.path.join(self._location, func_id, args_id)
 
         if verbose > 1:
             if verbose < 10:
@@ -84,7 +84,7 @@ class StoreManagerMixin(object):
 
         filename = os.path.join(full_path, 'output.pkl')
         if not self.object_exists(filename):
-            raise KeyError("Non-existing cache value (may have been "
+            raise KeyError("Non-existing item (may have been "
                            "cleared).\nFile %s does not exist" % filename)
 
         # file-like object cannot be used when mmap_mode is set
@@ -99,7 +99,7 @@ class StoreManagerMixin(object):
                     verbose=1):
         """Dump computation output in store."""
         try:
-            result_dir = os.path.join(self.cachedir, func_id, args_id)
+            result_dir = os.path.join(self._location, func_id, args_id)
             if not self.object_exists(result_dir):
                 self.create_location(result_dir)
             filename = os.path.join(result_dir, 'output.pkl')
@@ -117,25 +117,25 @@ class StoreManagerMixin(object):
 
     def clear_result(self, func_id, args_id):
         """Clear computation output in store."""
-        result_dir = os.path.join(self.cachedir, func_id, args_id)
+        result_dir = os.path.join(self._location, func_id, args_id)
         if self.object_exists(result_dir):
             self.clear_location(result_dir)
 
     def contains_result(self, func_id, args_id):
         """Check computation output is available in store."""
-        result_dir = os.path.join(self.cachedir, func_id, args_id)
+        result_dir = os.path.join(self._location, func_id, args_id)
         filename = os.path.join(result_dir, 'output.pkl')
 
         return self.object_exists(filename)
 
     def get_result_info(self, func_id, args_id):
-        """Return information about cached result."""
-        return {'location': os.path.join(self.cachedir, func_id, args_id)}
+        """Return information about result."""
+        return {'location': os.path.join(self._location, func_id, args_id)}
 
     def get_metadata(self, func_id, args_id):
         """Return actual metadata of a computation."""
         try:
-            directory = os.path.join(self.cachedir, func_id, args_id)
+            directory = os.path.join(self._location, func_id, args_id)
             filename = os.path.join(directory, 'metadata.json')
             with self.open_object(filename, 'rb') as f:
                 return json.loads(f.read().decode('utf-8'))
@@ -145,7 +145,7 @@ class StoreManagerMixin(object):
     def store_metadata(self, func_id, args_id, metadata):
         """Store metadata of a computation."""
         try:
-            directory = os.path.join(self.cachedir, func_id, args_id)
+            directory = os.path.join(self._location, func_id, args_id)
             self.create_location(directory)
             filename = os.path.join(directory, 'metadata.json')
 
@@ -159,18 +159,18 @@ class StoreManagerMixin(object):
 
     def contains_cached_func(self, func_id):
         """Check cached function is available in store."""
-        func_dir = os.path.join(self.cachedir, func_id)
+        func_dir = os.path.join(self._location, func_id)
         return self.object_exists(func_dir)
 
     def clear_cached_func(self, func_id):
         """Clear all references to a function in the store."""
-        func_dir = os.path.join(self.cachedir, func_id)
+        func_dir = os.path.join(self._location, func_id)
         if self.object_exists(func_dir):
             self.clear_location(func_dir)
 
     def store_cached_func_code(self, func_id, func_code=None):
         """Store the code of the cached function."""
-        func_dir = os.path.join(self.cachedir, func_id)
+        func_dir = os.path.join(self._location, func_id)
         if not self.object_exists(func_dir):
             self.create_location(func_dir)
 
@@ -181,7 +181,7 @@ class StoreManagerMixin(object):
 
     def get_cached_func_code(self, func_id):
         """Store the code of the cached function."""
-        filename = os.path.join(self.cachedir, func_id, "func_code.py")
+        filename = os.path.join(self._location, func_id, "func_code.py")
         try:
             with self.open_object(filename, 'rb') as f:
                 return f.read().decode('utf-8')
@@ -190,22 +190,21 @@ class StoreManagerMixin(object):
 
     def get_cached_func_info(self, func_id):
         """Return information related to the cached function if it exists."""
-        return {'location': os.path.join(self.cachedir, func_id)}
+        return {'location': os.path.join(self._location, func_id)}
 
     def clear(self):
         """Clear the whole store content."""
-        self.clear_location(self.cachedir)
+        self.clear_location(self._location)
 
-    def reduce_cache_size(self, bytes_limit):
-        """Reduce cache size to keep it under the given bytes limit."""
-        cache_items_to_delete = self._get_cache_items_to_delete(
-            bytes_limit)
+    def reduce_store_size(self, bytes_limit):
+        """Reduce store size to keep it under the given bytes limit."""
+        items_to_delete = self._get_items_to_delete(bytes_limit)
 
-        for cache_item in cache_items_to_delete:
+        for item in items_to_delete:
             if self.verbose > 10:
-                print('Deleting cache item {0}'.format(cache_item))
+                print('Deleting item {0}'.format(item))
             try:
-                self.clear_location(cache_item.path)
+                self.clear_location(item.path)
             except OSError:
                 # Even with ignore_errors=True can shutil.rmtree
                 # can raise OSErrror with [Errno 116] Stale file
@@ -213,33 +212,33 @@ class StoreManagerMixin(object):
                 # already.
                 pass
 
-    def _get_cache_items_to_delete(self, bytes_limit):
-        """Get cache items to delete to keep the cache under a size limit."""
+    def _get_items_to_delete(self, bytes_limit):
+        """Get items to delete to keep the store under a size limit."""
         if isinstance(bytes_limit, _basestring):
             bytes_limit = memstr_to_bytes(bytes_limit)
 
-        cache_items = self.get_cache_items()
-        cache_size = sum(item.size for item in cache_items)
+        items = self.get_items()
+        size = sum(item.size for item in items)
 
-        to_delete_size = cache_size - bytes_limit
+        to_delete_size = size - bytes_limit
         if to_delete_size < 0:
             return []
 
         # We want to delete first the cache items that were accessed a
         # long time ago
-        cache_items.sort(key=operator.attrgetter('last_access'))
+        items.sort(key=operator.attrgetter('last_access'))
 
-        cache_items_to_delete = []
+        items_to_delete = []
         size_so_far = 0
 
-        for item in cache_items:
+        for item in items:
             if size_so_far > to_delete_size:
                 break
 
-            cache_items_to_delete.append(item)
+            items_to_delete.append(item)
             size_so_far += item.size
 
-        return cache_items_to_delete
+        return items_to_delete
 
     def _concurrency_safe_write(self, to_write, filename, write_func):
         """Writes an object into a file in a concurrency-safe way."""
@@ -249,7 +248,7 @@ class StoreManagerMixin(object):
 
     def __repr__(self):
         """Printable representation of the store location."""
-        return self.cachedir
+        return self._location
 
 
 class FileSystemStoreBackend(StoreBackendBase, StoreManagerMixin):
@@ -257,7 +256,7 @@ class FileSystemStoreBackend(StoreBackendBase, StoreManagerMixin):
 
     def clear_location(self, location):
         """Delete location on store."""
-        if (location == self.cachedir):
+        if (location == self._location):
             rm_subdirs(location)
         else:
             shutil.rmtree(location, ignore_errors=True)
@@ -266,11 +265,11 @@ class FileSystemStoreBackend(StoreBackendBase, StoreManagerMixin):
         """Create object location on store"""
         mkdirp(location)
 
-    def get_cache_items(self):
-        """Returns the whole list of items available in cache."""
-        cache_items = []
+    def get_items(self):
+        """Returns the whole list of items available in the store."""
+        items = []
 
-        for dirpath, dirnames, filenames in os.walk(self.cachedir):
+        for dirpath, dirnames, filenames in os.walk(self._location):
             is_cache_hash_dir = re.match('[a-f0-9]{32}',
                                          os.path.basename(dirpath))
 
@@ -297,10 +296,10 @@ class FileSystemStoreBackend(StoreBackendBase, StoreManagerMixin):
                     # directory is being cleaned by another process already
                     continue
 
-                cache_items.append(CacheItemInfo(dirpath, dirsize,
-                                                 last_access))
+                items.append(CacheItemInfo(dirpath, dirsize,
+                                           last_access))
 
-        return cache_items
+        return items
 
     def configure(self, location, verbose=1, store_options={}):
         """Configure the store backend.
@@ -313,10 +312,10 @@ class FileSystemStoreBackend(StoreBackendBase, StoreManagerMixin):
         self.object_exists = os.path.exists
         self.mv = concurrency_safe_rename
 
-        # setup cachedir
-        self.cachedir = os.path.join(location, 'joblib')
-        if not os.path.exists(self.cachedir):
-            mkdirp(self.cachedir)
+        # setup locationdir
+        self._location = os.path.join(location, 'joblib')
+        if not os.path.exists(self._location):
+            mkdirp(self._location)
 
         # computation results can be stored compressed for faster I/O
         self.compress = (False if 'compress' not in store_options

@@ -380,8 +380,8 @@ def test_func_dir(tmpdir):
     g = memory.cache(f)
     # Test that the function directory is created on demand
     func_id = _build_func_identifier(f)
-    cachedir = os.path.join(g.store.cachedir, func_id)
-    assert cachedir == path
+    location = os.path.join(g.store._location, func_id)
+    assert location == path
     assert os.path.exists(path)
 
     # Test that the code is stored.
@@ -394,7 +394,7 @@ def test_func_dir(tmpdir):
 
     # Test the robustness to failure of loading previous results.
     func_id, args_id = g._get_output_idendifiers(1)
-    output_dir = os.path.join(g.store.cachedir, func_id, args_id)
+    output_dir = os.path.join(g.store._location, func_id, args_id)
     a = g(1)
     assert os.path.exists(output_dir)
     os.remove(os.path.join(output_dir, 'output.pkl'))
@@ -410,11 +410,11 @@ def test_persistence(tmpdir):
     h = pickle.loads(pickle.dumps(g))
 
     func_id, args_id = h._get_output_idendifiers(1)
-    output_dir = os.path.join(h.store.cachedir, func_id, args_id)
+    output_dir = os.path.join(h.store._location, func_id, args_id)
     assert os.path.exists(output_dir)
     assert output == h.store.load_result(func_id, args_id)
     memory2 = pickle.loads(pickle.dumps(memory))
-    assert memory.store.cachedir == memory2.store.cachedir
+    assert memory.store._location == memory2.store._location
 
     # Smoke test that pickling a memory with location=None works
     memory = Memory(location=None, verbose=0)
@@ -638,17 +638,17 @@ def _setup_toy_cache(tmpdir, num_inputs=10):
     hash_dirnames = [get_1000_bytes._get_output_idendifiers(arg)[1]
                      for arg in inputs]
 
-    full_hashdirs = [os.path.join(get_1000_bytes.store.cachedir,
+    full_hashdirs = [os.path.join(get_1000_bytes.store._location,
                                   func_id, dirname)
                      for dirname in hash_dirnames]
     return memory, full_hashdirs, get_1000_bytes
 
 
-def test__get_cache_items(tmpdir):
-    memory, expected_hash_cachedirs, _ = _setup_toy_cache(tmpdir)
-    cache_items = memory.store.get_cache_items()
-    hash_cachedirs = [ci.path for ci in cache_items]
-    assert set(hash_cachedirs) == set(expected_hash_cachedirs)
+def test__get_items(tmpdir):
+    memory, expected_hash_dirs, _ = _setup_toy_cache(tmpdir)
+    items = memory.store.get_items()
+    hash_dirs = [ci.path for ci in items]
+    assert set(hash_dirs) == set(expected_hash_dirs)
 
     def get_files_size(directory):
         full_paths = [os.path.join(directory, fn)
@@ -656,74 +656,73 @@ def test__get_cache_items(tmpdir):
         return sum(os.path.getsize(fp) for fp in full_paths)
 
     expected_hash_cache_sizes = [get_files_size(hash_dir)
-                                 for hash_dir in hash_cachedirs]
-    hash_cache_sizes = [ci.size for ci in cache_items]
+                                 for hash_dir in hash_dirs]
+    hash_cache_sizes = [ci.size for ci in items]
     assert hash_cache_sizes == expected_hash_cache_sizes
 
     output_filenames = [os.path.join(hash_dir, 'output.pkl')
-                        for hash_dir in hash_cachedirs]
+                        for hash_dir in hash_dirs]
 
     expected_last_accesses = [
         datetime.datetime.fromtimestamp(os.path.getatime(fn))
         for fn in output_filenames]
-    last_accesses = [ci.last_access for ci in cache_items]
+    last_accesses = [ci.last_access for ci in items]
     assert last_accesses == expected_last_accesses
 
 
-def test__get_cache_items_to_delete(tmpdir):
+def test__get_items_to_delete(tmpdir):
     memory, expected_hash_cachedirs, _ = _setup_toy_cache(tmpdir)
-    cache_items = memory.store.get_cache_items()
+    items = memory.store.get_items()
     # bytes_limit set to keep only one cache item (each hash cache
     # folder is about 1000 bytes + metadata)
-    cache_items_to_delete = memory.store._get_cache_items_to_delete('2K')
+    items_to_delete = memory.store._get_items_to_delete('2K')
     nb_hashes = len(expected_hash_cachedirs)
-    assert set.issubset(set(cache_items_to_delete), set(cache_items))
-    assert len(cache_items_to_delete) == nb_hashes - 1
+    assert set.issubset(set(items_to_delete), set(items))
+    assert len(items_to_delete) == nb_hashes - 1
 
     # Sanity check bytes_limit=2048 is the same as bytes_limit='2K'
-    cache_items_to_delete_2048b = memory.store._get_cache_items_to_delete(2048)
-    assert sorted(cache_items_to_delete) == sorted(cache_items_to_delete_2048b)
+    items_to_delete_2048b = memory.store._get_items_to_delete(2048)
+    assert sorted(items_to_delete) == sorted(items_to_delete_2048b)
 
     # bytes_limit greater than the size of the cache
-    cache_items_to_delete_empty = memory.store._get_cache_items_to_delete('1M')
-    assert cache_items_to_delete_empty == []
+    items_to_delete_empty = memory.store._get_items_to_delete('1M')
+    assert items_to_delete_empty == []
 
     # All the cache items need to be deleted
     bytes_limit_too_small = 500
-    cache_items_to_delete_500b = memory.store._get_cache_items_to_delete(
+    items_to_delete_500b = memory.store._get_items_to_delete(
         bytes_limit_too_small)
-    assert set(cache_items_to_delete_500b), set(cache_items)
+    assert set(items_to_delete_500b), set(items)
 
     # Test LRU property: surviving cache items should all have a more
     # recent last_access that the ones that have been deleted
-    cache_items_to_delete_6000b = memory.store._get_cache_items_to_delete(6000)
-    surviving_cache_items = set(cache_items).difference(
-        cache_items_to_delete_6000b)
+    items_to_delete_6000b = memory.store._get_items_to_delete(6000)
+    surviving_items = set(items).difference(items_to_delete_6000b)
 
-    assert (max(ci.last_access for ci in cache_items_to_delete_6000b) <=
-            min(ci.last_access for ci in surviving_cache_items))
+    assert (max(ci.last_access for ci in items_to_delete_6000b) <=
+            min(ci.last_access for ci in surviving_items))
 
 
 def test_memory_reduce_size(tmpdir):
     memory, _, _ = _setup_toy_cache(tmpdir)
-    ref_cache_items = memory.store.get_cache_items()
+    ref_cache_items = memory.store.get_items()
 
     # By default memory.bytes_limit is None and reduce_size is a noop
     memory.reduce_size()
-    cache_items = memory.store.get_cache_items()
+    cache_items = memory.store.get_items()
     assert sorted(ref_cache_items) == sorted(cache_items)
 
     # No cache items deleted if bytes_limit greater than the size of
     # the cache
     memory.bytes_limit = '1M'
     memory.reduce_size()
-    cache_items = memory.store.get_cache_items()
+    cache_items = memory.store.get_items()
     assert sorted(ref_cache_items) == sorted(cache_items)
 
     # bytes_limit is set so that only two cache items are kept
     memory.bytes_limit = '3K'
     memory.reduce_size()
-    cache_items = memory.store.get_cache_items()
+    cache_items = memory.store.get_items()
     assert set.issubset(set(cache_items), set(ref_cache_items))
     assert len(cache_items) == 2
 
@@ -731,7 +730,7 @@ def test_memory_reduce_size(tmpdir):
     bytes_limit_too_small = 500
     memory.bytes_limit = bytes_limit_too_small
     memory.reduce_size()
-    cache_items = memory.store.get_cache_items()
+    cache_items = memory.store.get_items()
     assert cache_items == []
 
 
@@ -739,7 +738,7 @@ def test_memory_clear(tmpdir):
     memory, _, _ = _setup_toy_cache(tmpdir)
     memory.clear()
 
-    assert os.listdir(memory.store.cachedir) == []
+    assert os.listdir(memory.store._location) == []
 
 
 def fast_func_with_complex_output():
@@ -857,7 +856,7 @@ def test_memory_recomputes_after_an_error_why_loading_results(tmpdir,
 
     # Corrupting output.pkl to make sure that an error happens when
     # loading the cached result
-    single_cache_item, = memory.store.get_cache_items()
+    single_cache_item, = memory.store.get_items()
     output_filename = os.path.join(single_cache_item.path, 'output.pkl')
     with open(output_filename, 'w') as f:
         f.write('garbage')
@@ -885,14 +884,14 @@ def test_cachedir_deprecation_warning(tmpdir):
     # option instead of new location parameter.
     with warns(None) as w:
         memory = Memory(location=tmpdir.strpath, cachedir=tmpdir, verbose=0)
-        assert memory.store.cachedir.startswith(tmpdir.strpath)
+        assert memory.store._location.startswith(tmpdir.strpath)
 
     assert len(w) == 1
     assert "You set both location and cachedir options" in str(w[-1].message)
 
     with warns(None) as w:
         memory = Memory(cachedir=tmpdir.strpath, verbose=0)
-        assert memory.store.cachedir.startswith(tmpdir.strpath)
+        assert memory.store._location.startswith(tmpdir.strpath)
 
     assert len(w) == 1
     assert "cachedir option is deprecated since version" in str(w[-1].message)
@@ -918,7 +917,7 @@ class DummyStoreBackend(StoreBackendBase):
         """Clear object on store"""
         "Does nothing"
 
-    def get_cache_items(self):
+    def get_items(self):
         """Returns the whole list of items available in cache."""
         return []
 
