@@ -71,12 +71,11 @@ class StoreManagerMixin(object):
 
     """
 
-    def load_result(self, func_id, args_id, **kwargs):
+    def load_result(self, func_id, args_id, verbose=1, **kwargs):
         """Load computation output from store."""
         full_path = os.path.join(self.cachedir, func_id, args_id)
 
-        if 'verbose' in kwargs and kwargs['verbose'] > 1:
-            verbose = kwargs['verbose']
+        if verbose > 1:
             signature = ""
             try:
                 if 'metadata' in kwargs and kwargs['metadata'] is not None:
@@ -97,14 +96,14 @@ class StoreManagerMixin(object):
             else:
                 ts_string = ""
 
-            if verbose < 10:
-                print('[Memory]{0}: Loading {1}...'.format(ts_string,
-                                                           str(signature)))
-            else:
-                print('[Memory]{0}: '
-                      'Loading {1} from {2}'.format(ts_string,
-                                                    str(signature),
-                                                    full_path))
+                if verbose < 10:
+                    print('[Memory]{0}: Loading {1}...'.format(ts_string,
+                                                               str(signature)))
+                else:
+                    print('[Memory]{0}: '
+                        'Loading {1} from {2}'.format(ts_string,
+                                                      str(signature),
+                                                      full_path))
 
         mmap_mode = None if 'mmap_mode' not in kwargs else kwargs['mmap_mode']
 
@@ -121,14 +120,15 @@ class StoreManagerMixin(object):
             result = numpy_pickle.load(filename, mmap_mode=mmap_mode)
         return result
 
-    def dump_result(self, func_id, args_id, result, compress=False, **kwargs):
+    def dump_result(self, func_id, args_id, result, compress=False,
+                    verbose=1, **kwargs):
         """Dump computation output in store."""
         try:
             result_dir = os.path.join(self.cachedir, func_id, args_id)
             if not self.object_exists(result_dir):
                 self.create_location(result_dir)
             filename = os.path.join(result_dir, 'output.pkl')
-            if 'verbose' in kwargs and kwargs['verbose'] > 10:
+            if verbose > 10:
                 print('Persisting in %s' % result_dir)
 
             def write_func(to_write, dest_filename):
@@ -326,7 +326,7 @@ class FileSystemStoreBackend(StoreBackendBase, StoreManagerMixin):
 
         return cache_items
 
-    def configure(self, location, **kwargs):
+    def configure(self, location, verbose=1, **kwargs):
         """Configure the store backend."""
 
         # attach required methods using monkey patching trick.
@@ -354,6 +354,5 @@ class FileSystemStoreBackend(StoreBackendBase, StoreManagerMixin):
                               stacklevel=2)
 
         self.mmap_mode = mmap_mode
+        self.verbose = verbose
 
-        if 'verbose' in kwargs:
-            self.verbose = kwargs['verbose']

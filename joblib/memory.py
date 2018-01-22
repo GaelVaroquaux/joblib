@@ -319,7 +319,8 @@ class MemorizedFunc(Logger):
 
     backend: str
         Type of store backend for reading/writing cache files.
-        Default is 'local'.
+        Default is 'local', in which case the location is the path to a
+        disk storage.
 
     ignore: list or None
         List of variable names to ignore when choosing whether to
