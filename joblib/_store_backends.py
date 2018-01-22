@@ -69,8 +69,8 @@ class StoreManagerMixin(object):
 
     """
 
-    def load_result(self, func_id, args_id, verbose=1, msg=None):
-        """Load computation output from store."""
+    def load_item(self, func_id, args_id, verbose=1, msg=None):
+        """Load an item from the store."""
         full_path = os.path.join(self._location, func_id, args_id)
 
         if verbose > 1:
@@ -90,46 +90,45 @@ class StoreManagerMixin(object):
         # file-like object cannot be used when mmap_mode is set
         if mmap_mode is None:
             with self.open_object(filename, "rb") as f:
-                result = numpy_pickle.load(f)
+                item = numpy_pickle.load(f)
         else:
-            result = numpy_pickle.load(filename, mmap_mode=mmap_mode)
-        return result
+            item = numpy_pickle.load(filename, mmap_mode=mmap_mode)
+        return item
 
-    def dump_result(self, func_id, args_id, result,
-                    verbose=1):
-        """Dump computation output in store."""
+    def dump_item(self, func_id, args_id, item, verbose=1):
+        """Dump an item in the store."""
         try:
-            result_dir = os.path.join(self._location, func_id, args_id)
-            if not self.object_exists(result_dir):
-                self.create_location(result_dir)
-            filename = os.path.join(result_dir, 'output.pkl')
+            item_dir = os.path.join(self._location, func_id, args_id)
+            if not self.object_exists(item_dir):
+                self.create_location(item_dir)
+            filename = os.path.join(item_dir, 'output.pkl')
             if verbose > 10:
-                print('Persisting in %s' % result_dir)
+                print('Persisting in %s' % item_dir)
 
             def write_func(to_write, dest_filename):
                 with self.open_object(dest_filename, "wb") as f:
                     numpy_pickle.dump(to_write, f,
                                       compress=self.compress)
 
-            self._concurrency_safe_write(result, filename, write_func)
+            self._concurrency_safe_write(item, filename, write_func)
         except:  # noqa: E722
             " Race condition in the creation of the directory "
 
-    def clear_result(self, func_id, args_id):
+    def clear_item(self, func_id, args_id):
         """Clear computation output in store."""
-        result_dir = os.path.join(self._location, func_id, args_id)
-        if self.object_exists(result_dir):
-            self.clear_location(result_dir)
+        item_dir = os.path.join(self._location, func_id, args_id)
+        if self.object_exists(item_dir):
+            self.clear_location(item_dir)
 
-    def contains_result(self, func_id, args_id):
+    def contains_item(self, func_id, args_id):
         """Check computation output is available in store."""
-        result_dir = os.path.join(self._location, func_id, args_id)
-        filename = os.path.join(result_dir, 'output.pkl')
+        item_dir = os.path.join(self._location, func_id, args_id)
+        filename = os.path.join(item_dir, 'output.pkl')
 
         return self.object_exists(filename)
 
-    def get_result_info(self, func_id, args_id):
-        """Return information about result."""
+    def get_item_info(self, func_id, args_id):
+        """Return information about item."""
         return {'location': os.path.join(self._location, func_id, args_id)}
 
     def get_metadata(self, func_id, args_id):
@@ -317,7 +316,7 @@ class FileSystemStoreBackend(StoreBackendBase, StoreManagerMixin):
         if not os.path.exists(self._location):
             mkdirp(self._location)
 
-        # computation results can be stored compressed for faster I/O
+        # item can be stored compressed for faster I/O
         self.compress = (False if 'compress' not in store_options
                          else store_options['compress'])
 
@@ -327,7 +326,7 @@ class FileSystemStoreBackend(StoreBackendBase, StoreManagerMixin):
         if 'mmap_mode' in store_options:
             mmap_mode = store_options['mmap_mode']
             if self.compress and mmap_mode is not None:
-                warnings.warn('Compressed results cannot be memmapped in a '
+                warnings.warn('Compressed items cannot be memmapped in a '
                               'filesystem store. Option will be ignored.',
                               stacklevel=2)
 

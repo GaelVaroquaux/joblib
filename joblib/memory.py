@@ -230,12 +230,12 @@ class MemorizedResult(Logger):
                                    metadata=self.metadata)
         else:
             msg = None
-        return self.store.load_result(self.func_id, self.args_id, msg=msg,
-                                      verbose=self.verbose)
+        return self.store.load_item(self.func_id, self.args_id, msg=msg,
+                                    verbose=self.verbose)
 
     def clear(self):
         """Clear value from cache"""
-        self.store.clear_result(self.func_id, self.args_id)
+        self.store.clear_item(self.func_id, self.args_id)
 
     def __repr__(self):
         return ('{class_name}(location="{location}", func="{func}", '
@@ -434,7 +434,7 @@ class MemorizedFunc(Logger):
         msg = None
         # FIXME: The statements below should be try/excepted
         if not (self._check_previous_func_code(stacklevel=4) and
-                self.store.contains_result(func_id, args_id)):
+                self.store.contains_item(func_id, args_id)):
             if self._verbose > 10:
                 _, name = get_func_name(self.func)
                 self.warn('Computing func %{0}, argument hash %{1} '
@@ -450,8 +450,8 @@ class MemorizedFunc(Logger):
                     msg = _format_load_msg(func_id, args_id,
                                            timestamp=self.timestamp,
                                            metadata=metadata)
-                out = self.store.load_result(func_id, args_id, msg=msg,
-                                             verbose=self._verbose)
+                out = self.store.load_item(func_id, args_id, msg=msg,
+                                           verbose=self._verbose)
         else:
             try:
                 t0 = time.time()
@@ -459,8 +459,8 @@ class MemorizedFunc(Logger):
                     msg = _format_load_msg(func_id, args_id,
                                            timestamp=self.timestamp,
                                            metadata=metadata)
-                out = self.store.load_result(func_id, args_id, msg=msg,
-                                             verbose=self._verbose)
+                out = self.store.load_item(func_id, args_id, msg=msg,
+                                           verbose=self._verbose)
                 if self._verbose > 4:
                     t = time.time() - t0
                     _, name = get_func_name(self.func)
@@ -664,7 +664,7 @@ class MemorizedFunc(Logger):
         if self._verbose > 0:
             print(format_call(self.func, args, kwargs))
         output = self.func(*args, **kwargs)
-        self.store.dump_result(func_id, args_id, output, verbose=self._verbose)
+        self.store.dump_item(func_id, args_id, output, verbose=self._verbose)
 
         duration = time.time() - start_time
         metadata = self._persist_input(duration, args, kwargs)
