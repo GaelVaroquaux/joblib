@@ -3,7 +3,6 @@
 import re
 import os
 import os.path
-import time
 import datetime
 import json
 import shutil
@@ -15,7 +14,6 @@ from abc import ABCMeta, abstractmethod
 
 from ._compat import with_metaclass, _basestring
 from .backports import concurrency_safe_rename
-from .logger import format_time
 from .disk import mkdirp, memstr_to_bytes, rm_subdirs
 from . import numpy_pickle
 
@@ -71,41 +69,18 @@ class StoreManagerMixin(object):
 
     """
 
-    def load_result(self, func_id, args_id, verbose=1, **kwargs):
+    def load_result(self, func_id, args_id, verbose=1, msg=None):
         """Load computation output from store."""
         full_path = os.path.join(self.cachedir, func_id, args_id)
 
         if verbose > 1:
-            signature = ""
-            try:
-                if 'metadata' in kwargs and kwargs['metadata'] is not None:
-                    metadata = kwargs['metadata']
-                    args = ", ".join(['%s=%s' % (name, value)
-                                      for name, value
-                                      in metadata['input_args'].items()])
-                    signature = "%s(%s)" % (os.path.basename(func_id), args)
-                else:
-                    signature = os.path.basename(func_id)
-            except KeyError:
-                pass
-
-            if 'timestamp' in kwargs and kwargs['timestamp'] is not None:
-                ts_string = ("{0: <16}"
-                             .format(format_time(time.time() -
-                                                 kwargs['timestamp'])))
+            if verbose < 10:
+                print('{0}...'.format(msg))
             else:
-                ts_string = ""
+                print('{0} from {1}'.format(msg, full_path))
 
-                if verbose < 10:
-                    print('[Memory]{0}: Loading {1}...'.format(ts_string,
-                                                               str(signature)))
-                else:
-                    print('[Memory]{0}: '
-                          'Loading {1} from {2}'.format(ts_string,
-                                                        str(signature),
-                                                        full_path))
-
-        mmap_mode = None if 'mmap_mode' not in kwargs else kwargs['mmap_mode']
+        mmap_mode = (None if not hasattr(self, 'mmap_mode')
+                     else self.mmap_mode)
 
         filename = os.path.join(full_path, 'output.pkl')
         if not self.object_exists(filename):

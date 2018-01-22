@@ -143,6 +143,28 @@ def _build_func_identifier(func):
     return os.path.join(*parts)
 
 
+def _format_load_msg(func_id, args_id, timestamp=None, metadata=None):
+    """ Helper function to format the message when loading the results.
+    """
+    signature = ""
+    try:
+        if metadata is not None:
+            args = ", ".join(['%s=%s' % (name, value)
+                              for name, value
+                              in metadata['input_args'].items()])
+            signature = "%s(%s)" % (os.path.basename(func_id), args)
+        else:
+            signature = os.path.basename(func_id)
+    except KeyError:
+        pass
+
+    if timestamp is not None:
+        ts_string = "{0: <16}".format(format_time(time.time() - timestamp))
+    else:
+        ts_string = ""
+    return '[Memory]{0}: Loading {1}'.format(ts_string, str(signature))
+
+
 # An in-memory store to avoid looking at the disk-based function
 # source code to check if a function definition has changed
 _FUNCTION_HASHES = weakref.WeakKeyDictionary()
@@ -202,11 +224,13 @@ class MemorizedResult(Logger):
 
     def get(self):
         """Read value from cache and return it."""
-        return self.store.load_result(self.func_id,
-                                      self.args_id,
-                                      timestamp=self.timestamp,
-                                      metadata=self.metadata,
-                                      mmap_mode=self.mmap_mode,
+        if self.verbose:
+            msg = _format_load_msg(self.func_id, self.args_id,
+                                   timestamp=self.timestamp,
+                                   metadata=self.metadata)
+        else:
+            msg = None
+        return self.store.load_result(self.func_id, self.args_id, msg=msg,
                                       verbose=self.verbose)
 
     def clear(self):
@@ -407,6 +431,7 @@ class MemorizedFunc(Logger):
         # function code has changed
         func_id, args_id = self._get_output_idendifiers(*args, **kwargs)
         metadata = None
+        msg = None
         # FIXME: The statements below should be try/excepted
         if not (self._check_previous_func_code(stacklevel=4) and
                 self.store.contains_result(func_id, args_id)):
@@ -421,17 +446,20 @@ class MemorizedFunc(Logger):
             if self.mmap_mode is not None:
                 # Memmap the output at the first call to be consistent with
                 # later calls
-                out = self.store.load_result(func_id, args_id,
-                                             timestamp=self.timestamp,
-                                             mmap_mode=self.mmap_mode,
+                if self._verbose:
+                    msg = _format_load_msg(func_id, args_id,
+                                           timestamp=self.timestamp,
+                                           metadata=metadata)
+                out = self.store.load_result(func_id, args_id, msg=msg,
                                              verbose=self._verbose)
         else:
             try:
                 t0 = time.time()
-                out = self.store.load_result(func_id, args_id,
-                                             timestamp=self.timestamp,
-                                             metadata=metadata,
-                                             mmap_mode=self.mmap_mode,
+                if self._verbose:
+                    msg = _format_load_msg(func_id, args_id,
+                                           timestamp=self.timestamp,
+                                           metadata=metadata)
+                out = self.store.load_result(func_id, args_id, msg=msg,
                                              verbose=self._verbose)
                 if self._verbose > 4:
                     t = time.time() - t0
@@ -793,6 +821,7 @@ class Memory(Logger):
                                             verbose=self._verbose,
                                             store_options=dict(
                                                 compress=compress,
+                                                mmap_mode=mmap_mode,
                                                 store_options=store_options),
                                             )
 
