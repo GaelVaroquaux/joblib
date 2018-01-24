@@ -69,9 +69,10 @@ class StoreManagerMixin(object):
 
     """
 
-    def load_item(self, func_id, args_id, verbose=1, msg=None):
-        """Load an item from the store."""
-        full_path = os.path.join(self._location, func_id, args_id)
+    def load_item(self, path, verbose=1, msg=None):
+        """Load an item from the store given its path as a list of
+           strings."""
+        full_path = os.path.join(self._location, *path)
 
         if verbose > 1:
             if verbose < 10:
@@ -95,10 +96,11 @@ class StoreManagerMixin(object):
             item = numpy_pickle.load(filename, mmap_mode=mmap_mode)
         return item
 
-    def dump_item(self, func_id, args_id, item, verbose=1):
-        """Dump an item in the store."""
+    def dump_item(self, path, item, verbose=1):
+        """Dump an item in the store at the path given as a list of
+           strings."""
         try:
-            item_dir = os.path.join(self._location, func_id, args_id)
+            item_dir = os.path.join(self._location, *path)
             if not self.object_exists(item_dir):
                 self.create_location(item_dir)
             filename = os.path.join(item_dir, 'output.pkl')
@@ -114,37 +116,39 @@ class StoreManagerMixin(object):
         except:  # noqa: E722
             " Race condition in the creation of the directory "
 
-    def clear_item(self, func_id, args_id):
-        """Clear computation output in store."""
-        item_dir = os.path.join(self._location, func_id, args_id)
+    def clear_item(self, path):
+        """Clear the item at the path, given as a list of strings."""
+        item_dir = os.path.join(self._location, *path)
         if self.object_exists(item_dir):
             self.clear_location(item_dir)
 
-    def contains_item(self, func_id, args_id):
-        """Check computation output is available in store."""
-        item_dir = os.path.join(self._location, func_id, args_id)
+    def contains_item(self, path):
+        """Check if there is an item at the path, given as a list of
+           strings"""
+        item_dir = os.path.join(self._location, *path)
         filename = os.path.join(item_dir, 'output.pkl')
 
         return self.object_exists(filename)
 
-    def get_item_info(self, func_id, args_id):
+    def get_item_info(self, path):
         """Return information about item."""
-        return {'location': os.path.join(self._location, func_id, args_id)}
+        return {'location': os.path.join(self._location,
+                                         *path)}
 
-    def get_metadata(self, func_id, args_id):
-        """Return actual metadata of a computation."""
+    def get_metadata(self, path):
+        """Return actual metadata of an item."""
         try:
-            directory = os.path.join(self._location, func_id, args_id)
+            directory = os.path.join(self._location, *path)
             filename = os.path.join(directory, 'metadata.json')
             with self.open_object(filename, 'rb') as f:
                 return json.loads(f.read().decode('utf-8'))
         except:  # noqa: E722
             return {}
 
-    def store_metadata(self, func_id, args_id, metadata):
+    def store_metadata(self, path, metadata):
         """Store metadata of a computation."""
         try:
-            directory = os.path.join(self._location, func_id, args_id)
+            directory = os.path.join(self._location, *path)
             self.create_location(directory)
             filename = os.path.join(directory, 'metadata.json')
 
@@ -156,20 +160,20 @@ class StoreManagerMixin(object):
         except:  # noqa: E722
             pass
 
-    def contains_cached_func(self, func_id):
+    def contains_path(self, path):
         """Check cached function is available in store."""
-        func_dir = os.path.join(self._location, func_id)
+        func_dir = os.path.join(self._location, *path)
         return self.object_exists(func_dir)
 
-    def clear_cached_func(self, func_id):
-        """Clear all references to a function in the store."""
-        func_dir = os.path.join(self._location, func_id)
+    def clear_path(self, path):
+        """Clear all items with a common path in the store."""
+        func_dir = os.path.join(self._location, *path)
         if self.object_exists(func_dir):
             self.clear_location(func_dir)
 
-    def store_cached_func_code(self, func_id, func_code=None):
+    def store_cached_func_code(self, path, func_code=None):
         """Store the code of the cached function."""
-        func_dir = os.path.join(self._location, func_id)
+        func_dir = os.path.join(self._location, *path)
         if not self.object_exists(func_dir):
             self.create_location(func_dir)
 
@@ -178,18 +182,19 @@ class StoreManagerMixin(object):
             with self.open_object(filename, 'wb') as f:
                 f.write(func_code.encode('utf-8'))
 
-    def get_cached_func_code(self, func_id):
+    def get_cached_func_code(self, path):
         """Store the code of the cached function."""
-        filename = os.path.join(self._location, func_id, "func_code.py")
+        path = path + ["func_code.py", ]
+        filename = os.path.join(self._location, *path)
         try:
             with self.open_object(filename, 'rb') as f:
                 return f.read().decode('utf-8')
         except:  # noqa: E722
             raise
 
-    def get_cached_func_info(self, func_id):
+    def get_cached_func_info(self, path):
         """Return information related to the cached function if it exists."""
-        return {'location': os.path.join(self._location, func_id)}
+        return {'location': os.path.join(self._location, *path)}
 
     def clear(self):
         """Clear the whole store content."""

@@ -412,7 +412,7 @@ def test_persistence(tmpdir):
     func_id, args_id = h._get_output_idendifiers(1)
     output_dir = os.path.join(h.store._location, func_id, args_id)
     assert os.path.exists(output_dir)
-    assert output == h.store.load_item(func_id, args_id)
+    assert output == h.store.load_item([func_id, args_id])
     memory2 = pickle.loads(pickle.dumps(memory))
     assert memory.store._location == memory2.store._location
 
@@ -944,8 +944,10 @@ def test_register_invalid_store_backends_object():
 
 def test_memory_default_store_backend():
     # test an unknow backend falls back into a FileSystemStoreBackend
-    memory = Memory(location='/tmp/joblib', backend='unknown', verbose=0)
-    assert isinstance(memory.store, FileSystemStoreBackend)
+    with raises(TypeError) as excinfo:
+        Memory(location='/tmp/joblib', backend='unknown')
+    excinfo.match(r"Unknown location*")
+
 
 
 def test_instanciate_incomplete_store_backend():
